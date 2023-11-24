@@ -1,0 +1,147 @@
+/* Group 0101, Yunting He, Lanlan Chen.
+ *Combined two codes example in class: [Open CV - KnightRider], [Just Pixels - Blob Track to Servo]
+ *The code itself is very simple, we in order to realize the effect of the light can avoid the player, 
+ *in the actual set up, we put the lights in the opposite position, 
+ *for example, the LED connected to Pin2 on the right side of the most, 
+ *to achieve when the player appeared on the left side of the screen when the most right side of the light on.
+ */
+
+/**
+ * Color Tracking and LED Control
+ * 
+ * This code is designed to track a specific color captured from a webcam feed and control LEDs based on the color's position. It utilizes the Processing environment along with the Arduino, OpenCV, and video libraries.
+ * 
+ * The main functionality includes capturing live video, detecting the chosen color, and determining its position on the screen. The screen is divided into five sections, each corresponding to an LED. The LED corresponding to the section where the color is detected will be lit.
+ * 
+ * Refactored and adapted using ChatGPT with GPT-4 architecture, dated April 2023.
+ */
+
+
+
+import processing.serial.*;
+import gab.opencv.*;
+import java.awt.*;
+
+import cc.arduino.*;
+import processing.video.*;
+import java.util.ArrayList;
+
+Arduino arduino;
+Capture video;
+color trackColor; 
+int[] ledPins = {2, 3, 4, 5, 6}; /////pin number////
+float threshold = 25;
+float distThreshold = 50;
+ArrayList<Blob> blobs = new ArrayList<Blob>();
+
+
+float distSq(float x1, float y1, float x2, float y2) {
+  float dx = x2 - x1;
+  float dy = y2 - y1;
+  return (dx * dx) + (dy * dy);
+}
+
+void setup() {
+  size(1920, 1080);
+  video = new Capture(this, 1920, 1080);
+  video.start();
+
+  arduino = new Arduino(this, Arduino.list()[0], 57600);
+  for (int i = 0; i < ledPins.length; i++) {
+    arduino.pinMode(ledPins[i], Arduino.OUTPUT);
+  }
+  trackColor = color(255, 0, 0); 
+}
+
+void captureEvent(Capture c) {
+  c.read();
+}
+
+void draw() {
+  video.loadPixels();
+  image(video, 0, 0);
+  blobs.clear();
+
+  for (int x = 0; x < video.width; x++) {
+    for (int y = 0; y < video.height; y++) {
+      int loc = x + y * video.width;
+      color currentColor = video.pixels[loc];
+float d = distSq(red(currentColor), green(currentColor), blue(currentColor), red(trackColor), green(trackColor), blue(trackColor));
+      if (d < threshold * threshold) {
+        Blob foundBlob = null;
+        for (Blob b : blobs) {
+          if (b.isNear(x, y)) {
+            foundBlob = b;
+            break;
+          }
+        }
+        if (foundBlob == null) {
+          foundBlob = new Blob(x, y);
+          blobs.add(foundBlob);
+        }
+        foundBlob.add(x, y);
+      }
+    }
+  }
+
+  // check and conrol Led
+  if (blobs.size() > 0) {
+    Blob biggestBlob = blobs.get(0);
+    for (Blob b : blobs) {
+      if (b.size() > biggestBlob.size()) {
+        biggestBlob = b;
+      }
+    }
+    int blobCenterX = biggestBlob.getCenterX();
+    controlLEDs(blobCenterX);
+  }
+}
+
+void mousePressed() {
+  int loc = mouseX + mouseY * video.width;
+  trackColor = video.pixels[loc];
+}
+
+void controlLEDs(int x) {
+  int section = x / (width / 5); //5 area///////
+  for (int i = 0; i < ledPins.length; i++) {
+    arduino.digitalWrite(ledPins[i], (i == section) ? Arduino.HIGH : Arduino.LOW);
+  }
+}
+
+float distSq(float r1, float g1, float b1, float r2, float g2, float b2) {
+  return (r2 - r1) * (r2 - r1) + (g2 - g1) * (g2 - g1) + (b2 - b1) * (b2 - b1);
+}
+
+class Blob {
+  ArrayList<PVector> points;
+  float minx, miny, maxx, maxy;
+
+  Blob(float x, float y) {
+    minx = maxx = x;
+    miny = maxy = y;
+    points = new ArrayList<PVector>();
+  }
+
+  void add(float x, float y) {
+    points.add(new PVector(x, y));
+    minx = min(minx, x);
+    maxx = max(maxx, x);
+    miny = min(miny, y);
+    maxy = max(maxy, y);
+  }
+
+  int size() {
+    return points.size();
+  }
+
+  int getCenterX() {
+    return round(minx + (maxx - minx) / 2);
+  }
+
+boolean isNear(float x, float y) {
+  float d = distSq(x, y, minx + (maxx - minx) / 2, miny + (maxy - miny) / 2);
+  return d < distThreshold * distThreshold;
+}
+
+}
